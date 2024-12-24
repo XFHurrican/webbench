@@ -376,57 +376,126 @@ static int bench(void)
     return i;
 }
 
-void benchcore(const char *host,const int port,const char *req)
-{
+void benchcore(const char *host, const int port, const char *req) {
     int rlen;
     char buf[1500];
-    int s,i;
+    int s, i;
     struct sigaction sa;
 
-    /* setup alarm signal handler */
-    sa.sa_handler=alarm_handler;
-    sa.sa_flags=0;
-    if(sigaction(SIGALRM,&sa,NULL))
+    // 设置定时器处理
+    sa.sa_handler = alarm_handler;
+    sa.sa_flags = 0;
+    if (sigaction(SIGALRM, &sa, NULL)) {
+        perror("sigaction failed");
         exit(3);
-    
-    alarm(benchtime); // after benchtime,then exit
+    }
+    alarm(benchtime); // 设置测试时长
 
-    rlen=strlen(req);
-    nexttry:while(1)
-    {
-        if(timerexpired)
-        {
-            if(failed>0)
-            {
-                failed--;
-            }
-            return;
+    rlen = strlen(req);
+
+    while (!timerexpired) {
+        s = Socket(host, port); // 创建连接
+        if (s < 0) {
+            failed++;
+            continue;
         }
-        
-        s=Socket(host,port);                          
-        if(s<0) { failed++;continue;} 
-        if(rlen!=write(s,req,rlen)) {failed++;close(s);continue;}
-        if(http10==0) 
-        if(shutdown(s,1)) { failed++;close(s);continue;}
-        if(force==0) 
-        {
-            while(1)
-            {
-                if(timerexpired) break; 
-                i=read(s,buf,1500);
-                if(i<0) 
-                { 
+
+        // 发送请求
+        if (rlen != write(s, req, rlen)) {
+            failed++;
+            close(s);
+            continue;
+        }
+
+        // HTTP/0.9 协议的处理
+        if (http10 == 0 && shutdown(s, 1)) {
+            failed++;
+            close(s);
+            continue;
+        }
+
+        // 如果没有强制关闭连接，开始读取响应数据
+        if (force == 0) {
+            while (1) {
+                i = read(s, buf, sizeof(buf));
+                if (i < 0) { // 读取失败
                     failed++;
                     close(s);
-                    goto nexttry;
+                    break;
+                } else if (i == 0) { // 连接关闭
+                    break;
+                } else {
+                    bytes += i; // 累加字节数
                 }
-                else
-                if(i==0) break;
-                else
-                bytes+=i;
+
+                if (timerexpired) {
+                    break; // 如果定时器到期，跳出读取循环
+                }
             }
         }
-        if(close(s)) {failed++;continue;}
-        speed++;
+
+        // 关闭连接
+        if (close(s)) {
+            failed++;
+        } else {
+            speed++; // 请求成功
+        }
     }
 }
+
+
+
+// void benchcore(const char *host,const int port,const char *req)
+// {
+//     int rlen;
+//     char buf[1500];
+//     int s,i;
+//     struct sigaction sa;
+
+//     /* setup alarm signal handler */
+//     sa.sa_handler=alarm_handler;
+//     sa.sa_flags=0;
+//     if(sigaction(SIGALRM,&sa,NULL))
+//         exit(3);
+    
+//     alarm(benchtime); // after benchtime,then exit
+
+//     rlen=strlen(req);
+//     nexttry:while(1)
+//     {
+//         if(timerexpired)
+//         {
+//             if(failed>0)
+//             {
+//                 failed--;
+//             }
+//             return;
+//         }
+        
+//         s=Socket(host,port);                          
+//         if(s<0) { failed++;continue;} 
+//         if(rlen!=write(s,req,rlen)) {failed++;close(s);continue;}
+//         if(http10==0) 
+//         if(shutdown(s,1)) { failed++;close(s);continue;}
+//         if(force==0) 
+//         {
+//             while(1)
+//             {
+//                 if(timerexpired) break; 
+//                 i=read(s,buf,1500);
+//                 if(i<0) 
+//                 { 
+//                     failed++;
+//                     close(s);
+//                     goto nexttry;
+//                 }
+//                 else
+//                 if(i==0) break;
+//                 else
+//                 bytes+=i;
+//             }
+//         }
+//         if(close(s)) {failed++;continue;}
+//         speed++;
+//     }
+// }
